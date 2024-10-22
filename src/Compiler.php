@@ -2,14 +2,22 @@
 
 namespace Templar;
 
+use Templar\Directives;
+
 class Compiler
 {
     protected $directives = [];
 
-    public function __construct(array $directives = [])
+    public function __construct()
     {
+        $directives = new Directives();
         // Initialize with default or custom directives
-        $this->directives = $directives;
+        $this->directives = $directives->getDirectives();
+    }
+
+    public function __get($name)
+    {
+        return $this->$name;
     }
 
     /**
@@ -20,6 +28,10 @@ class Compiler
      */
     public function addDirective(string $name, callable $handler)
     {
+        if (isset($this->directives[$name])) {
+            throw new \Exception(message: "Directive $name already exists.");
+        }
+
         $this->directives[$name] = $handler;
     }
 
@@ -32,21 +44,9 @@ class Compiler
      */
     public function compile(string $template, array $data = []): string
     {
-        $content = file_get_contents($template);
+        $content = file_get_contents(filename: $template);
 
-        // Apply registered directives
-        foreach (self::$directives as $directive => $handler) {
-            $pattern = "/@$directive\s*\((.*?)\)/";
-            $content = preg_replace_callback($pattern, function ($matches) use ($handler) {
-                return $handler($matches[1]);
-            }, $content);
-        }
-
-        // Now, execute the template with the passed data
-        extract($data);
-        ob_start();
-        eval('?>' . $content);
-        return ob_get_clean();
+        return $this->compileFromString($content, $data);
     }
 
     /**
@@ -59,11 +59,16 @@ class Compiler
     public function compileFromString(string $content, array $data = []): string
     {
         // Apply directives to content string
-        foreach ($this->directives as $directive => $handler) {
-            $pattern = "/@$directive\s*\((.*?)\)/";
-            $content = preg_replace_callback($pattern, function ($matches) use ($handler) {
-                return $handler($matches[1]);
-            }, $content);
+        foreach ($this->directives as $directive => $attributes) {
+
+            $pattern = "/@$directive/";
+            if ($attributes['hasArguments']) {
+                $pattern = "/@$directive\s*\((.*?)\)/";
+            }
+
+            $content = preg_replace_callback(pattern: $pattern, callback: function ($matches) use ($attributes): mixed {
+                return $attributes['handler']($matches[1]);
+            }, subject: $content);
         }
 
         // Execute the template with the passed data
@@ -71,11 +76,5 @@ class Compiler
         ob_start();
         eval('?>' . $content);
         return ob_get_clean();
-    }
-
-    public static function directive(string $name, callable $handler): void
-    {
-        // Register a new directive
-        static::$directives[$name] = $handler;
     }
 }

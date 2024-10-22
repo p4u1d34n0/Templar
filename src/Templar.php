@@ -2,6 +2,8 @@
 
 namespace Templar;
 
+use Templar\Directives;
+
 class Templar
 {
     protected $config = [];
@@ -13,14 +15,11 @@ class Templar
         // Merge the passed configuration with default values
         $this->config = array_merge($this->defaultConfig(), $config);
 
-        // Initialize Compiler with directives
-        $this->compiler = new Compiler($this->config['directives']);
-
         // Initialize Components
-        $this->components = new Components($this->config['components_path']);
+        $this->components = null; //ew Components($this->config['components_path']);
 
-        // Automatically register directives
-        Directives::register();
+        // Automatically register new cpiler with merged directives
+        $this->compiler = new Compiler();
     }
 
     /**
@@ -28,7 +27,7 @@ class Templar
      *
      * @param array $config Custom configuration.
      */
-    public function setConfig(array $config)
+    public function setConfig(array $config): void
     {
         $this->config = array_merge($this->config, $config);
     }
@@ -44,7 +43,6 @@ class Templar
             'view_path' => './views', // Default view folder
             'cache_path' => './cache', // Cache for compiled templates
             'components_path' => './views/components', // Components path
-            'directives' => [], // Custom directives
             'components' => [] // Custom components
         ];
     }
@@ -55,9 +53,9 @@ class Templar
      * @param string $name The directive name.
      * @param callable $handler The handler for the directive transformation.
      */
-    public function registerDirective(string $name, callable $handler)
+    public function registerDirective(string $name, callable $handler): void
     {
-        $this->compiler->addDirective($name, $handler);
+        $this->compiler->addDirective(name: $name, handler: $handler);
     }
 
     /**
@@ -72,7 +70,7 @@ class Templar
         $viewPath = $this->config['view_path'] . '/' . $view . '.php';
 
         // Compile the view with the given data
-        return $this->compiler->compile($viewPath, $data);
+        return $this->compiler->compile(template: $viewPath, data: $data);
     }
 
     /**
@@ -83,10 +81,11 @@ class Templar
      * @param array $slots Slots content passed to the component.
      * @return string Rendered component content.
      */
-    public function renderComponent(string $component, array $props = [], array $slots = []): string
+    public function renderComponent(string $component, array $props = [], array $slots = [])
     {
+        return null;
         // Render the component using the Components class
-        return $this->components->render($component, $props, $slots);
+        //  return $this->components->render(componentName: $component, props: $props, slots: $slots);
     }
 
     /**
@@ -94,7 +93,7 @@ class Templar
      *
      * @param callable $callback Callback to register custom directives/components.
      */
-    public function boot(callable $callback)
+    public function boot(callable $callback): void
     {
         // Call the callback and pass $this to allow modifications
         $callback($this);
