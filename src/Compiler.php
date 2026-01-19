@@ -2,87 +2,128 @@
 
 namespace Templar;
 
-use Templar\Directives;
+use Templar\Directives\DirectiveLoader;
+use Templar\Directives\DirectiveInterface;
 use Templar\Dumper;
 
 class Compiler
 {
-    protected $directives = [];
+    /** @var array<string, array{class: class-string<DirectiveInterface>, hasArguments: bool}|array{handler: callable, hasArguments: bool}> */
+    protected array $directives = [];
 
     public function __construct()
     {
-        $directives = new Directives();
-        // Initialize with default or custom directives
-        $this->directives = $directives->getDirectives();
-    }
-
-    public function __get($name)
-    {
-        return $this->$name;
+        // Load directives from the Directives folder
+        $this->directives = DirectiveLoader::getDirectives();
     }
 
     /**
-     * Add a new directive.
+     * Add a custom directive via closure.
      *
-     * @param string $name The name of the directive.
-     * @param callable $handler The handler that transforms the directive.
+     * @param string $name The directive name (without @).
+     * @param callable $handler The handler that returns compiled PHP code.
+     * @param bool $hasArguments Whether the directive accepts arguments.
      */
-    public function addDirective(string $name, callable $handler)
+    public function addDirective(string $name, callable $handler, bool $hasArguments = true): void
     {
         if (isset($this->directives[$name])) {
-            throw new \Exception(message: "Directive $name already exists.");
+            throw new \InvalidArgumentException("Directive '{$name}' already exists.");
         }
 
-        $this->directives[$name] = $handler;
+        $this->directives[$name] = [
+            'handler' => $handler,
+            'hasArguments' => $hasArguments,
+        ];
     }
 
     /**
-     * Compile a template by applying directives and transforming the template code.
+     * Register a directive class.
+     *
+     * @param class-string<DirectiveInterface> $class
+     */
+    public function addDirectiveClass(string $class): void
+    {
+        DirectiveLoader::register($class);
+        $name = $class::getName();
+        $this->directives[$name] = [
+            'class' => $class,
+            'hasArguments' => $class::hasArguments(),
+        ];
+    }
+
+    /**
+     * Compile a template file.
      *
      * @param string $template Path to the template file.
-     * @param array $data Variables to be extracted and used in the template.
+     * @param array $data Variables to be passed to the template.
      * @return string Compiled output.
      */
     public function compile(string $template, array $data = []): string
     {
-        $content = file_get_contents(filename: $template);
+        $content = file_get_contents($template);
 
         return $this->compileFromString($content, $data);
     }
 
     /**
-     * Render a template from raw content (string), useful when dynamic templates are generated.
+     * Compile a template string.
      *
-     * @param string $content The template content as a string.
-     * @param array $data Variables to be extracted and used in the template.
+     * @param string $content The template content.
+     * @param array $data Variables to be passed to the template.
      * @return string Compiled output.
      */
     public function compileFromString(string $content, array $data = []): string
     {
-        // Compile echo syntax: % variable % or % object.property %
+        // Compile echo syntax: % variable %
         $content = $this->compileEchoSyntax($content);
 
-        // Compile dump syntax: %! variable !% or %! object.property !%
+        // Compile dump syntax: %! variable !%
         $content = $this->compileDumpSyntax($content);
 
-        // Apply directives to content string
-        foreach ($this->directives as $directive => $attributes) {
+        // Compile directives
+        $content = $this->compileDirectives($content);
 
-            $pattern = "/@$directive/";
-            if ($attributes['hasArguments']) {
-                $pattern = "/@$directive\s*\((.*?)\)/s";
-            }
-
-            $content = preg_replace_callback(pattern: $pattern, callback: function ($matches) use ($attributes): mixed {
-                return $attributes['handler']($matches[1] ?? '');
-            }, subject: $content);
-        }
-
-        // Execute the template with the passed data
+        // Execute the template
         extract($data);
         ob_start();
         eval('?>' . $content);
         return ob_get_clean();
+    }
+
+    /**
+     * Compile all directives in the content.
+     *
+     * @param string $content
+     * @return string
+     */
+    protected function compileDirectives(string $content): string
+    {
+        foreach ($this->directives as $name => $config) {
+            $hasArguments = $config['hasArguments'];
+
+            if ($hasArguments) {
+                $pattern = "/@{$name}\s*\((.*?)\)/s";
+            } else {
+                $pattern = "/@{$name}(?!\w)/";
+            }
+
+            $content = preg_replace_callback(
+                $pattern,
+                function ($matches) use ($config) {
+                    $expression = $matches[1] ?? '';
+
+                    // Check if it's a class-based directive or closure
+                    if (isset($config['class'])) {
+                        return $config['class']::handle($expression);
+                    } else {
+                        return $config['handler']($expression);
+                    }
+                },
+                $content
+            );
+        }
+
+        return $content;
     }
 
     /**
@@ -98,7 +139,6 @@ class Compiler
      */
     protected function compileEchoSyntax(string $content): string
     {
-        // Match % variable % or % object.property.nested %
         return preg_replace_callback(
             '/%\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)*)\s*%/',
             function ($matches) {
@@ -113,17 +153,11 @@ class Compiler
     /**
      * Compile the %! variable !% intelligent dump syntax.
      *
-     * Outputs based on variable type:
-     *   - String: raw output
-     *   - Array/Object: formatted dump
-     *   - Closure: signature info
-     *
      * @param string $content
      * @return string
      */
     protected function compileDumpSyntax(string $content): string
     {
-        // Match %! variable !% or %! object.property.nested !%
         return preg_replace_callback(
             '/%!\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]+)*)\s*!%/',
             function ($matches) {
@@ -138,11 +172,6 @@ class Compiler
     /**
      * Convert dot notation to PHP variable accessor.
      *
-     * Examples:
-     *   name         -> $name
-     *   user.name    -> (is_array($user) ? ($user['name'] ?? null) : ($user->name ?? null))
-     *   items.0.id   -> Smart array/object access
-     *
      * @param string $variable Dot-notation variable path
      * @return string PHP accessor code
      */
@@ -154,16 +183,13 @@ class Compiler
             return '$' . $variable;
         }
 
-        // Build a smart accessor that handles both arrays and objects
         $base = '$' . array_shift($parts);
         $accessor = $base;
 
         foreach ($parts as $part) {
-            // Check if it's a numeric index
             if (is_numeric($part)) {
                 $accessor = '(is_array(' . $accessor . ') ? (' . $accessor . '[' . $part . '] ?? null) : null)';
             } else {
-                // Could be array key or object property
                 $accessor = '(is_array(' . $accessor . ') ? (' . $accessor . '[\'' . $part . '\'] ?? null) : (is_object(' . $accessor . ') ? (' . $accessor . '->' . $part . ' ?? null) : null))';
             }
         }
