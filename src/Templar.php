@@ -3,6 +3,7 @@
 namespace Templar;
 
 use Templar\Directives;
+use Templar\Dumper;
 
 class Templar
 {
@@ -16,9 +17,9 @@ class Templar
         $this->config = array_merge($this->defaultConfig(), $config);
 
         // Initialize Components
-        $this->components = null; //ew Components($this->config['components_path']);
+        $this->components = null; //new Components($this->config['components_path']);
 
-        // Automatically register new cpiler with merged directives
+        // Automatically register new compiler with merged directives
         $this->compiler = new Compiler();
     }
 
@@ -30,6 +31,16 @@ class Templar
     public function setConfig(array $config): void
     {
         $this->config = array_merge($this->config, $config);
+    }
+
+    /**
+     * Get the current configuration.
+     *
+     * @return array Current configuration settings.
+     */
+    public function getConfig(): array
+    {
+        return $this->config;
     }
 
     /**
@@ -69,8 +80,24 @@ class Templar
     {
         $viewPath = $this->config['view_path'] . '/' . $view . '.php';
 
+        if (!file_exists($viewPath)) {
+            throw new \RuntimeException("View not found: {$viewPath}");
+        }
+
         // Compile the view with the given data
         return $this->compiler->compile(template: $viewPath, data: $data);
+    }
+
+    /**
+     * Render a template string directly.
+     *
+     * @param string $template The template string.
+     * @param array $data Data to be passed to the template.
+     * @return string The rendered content.
+     */
+    public function renderString(string $template, array $data = []): string
+    {
+        return $this->compiler->compileFromString(content: $template, data: $data);
     }
 
     /**
@@ -97,5 +124,36 @@ class Templar
     {
         // Call the callback and pass $this to allow modifications
         $callback($this);
+    }
+
+    /**
+     * Get the CSS styles for dump output.
+     * Include this once in your layout <head> or before using %! !% syntax.
+     *
+     * @return string CSS styles for dump formatting
+     */
+    public static function dumpStyles(): string
+    {
+        return Dumper::getStyles();
+    }
+
+    /**
+     * Reset the dump styles flag (useful between requests in long-running processes).
+     */
+    public static function resetDumpStyles(): void
+    {
+        Dumper::resetStyles();
+    }
+
+    /**
+     * Dump a variable using intelligent formatting.
+     * Can be used directly: Templar::dump($var)
+     *
+     * @param mixed $var Variable to dump
+     * @return string Formatted output
+     */
+    public static function dump(mixed $var): string
+    {
+        return Dumper::dump($var);
     }
 }
