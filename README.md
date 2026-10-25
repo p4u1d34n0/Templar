@@ -1,4 +1,8 @@
-# Templar
+# Templar (sandbox)
+
+> [!WARNING]
+> **Sandbox project, not for production.** This is a personal test space for trying out ideas. It isn't maintained or supported, and it may change or disappear without notice. For production templates, use a maintained engine such as Twig or Blade.
+
 
 A lightweight, powerful PHP templating engine with a clean, distinctive syntax.
 

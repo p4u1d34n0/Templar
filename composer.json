@@ -1,6 +1,6 @@
 {
     "name": "pauldeano/templar",
-    "description": "Templar: PHP Template Framework",
+    "description": "Sandbox project, not for production: an experimental PHP templating engine",
     "type": "library",
     "license": "MIT",
     "autoload": {
